@@ -1,5 +1,6 @@
 import http from 'node:http'
 import https from 'node:https'
+import { syncBuiltinESMExports } from 'node:module'
 import { runInRequestContext } from '#/src/request-context'
 import { patchesRegistry } from '#/src/utils/patches-registry'
 import { forwardHttpEvents } from '#/src/interceptors/http/forward-events'
@@ -34,6 +35,20 @@ export class ClientRequestInterceptor extends Interceptor<HttpRequestEventMap> {
         },
       })
     )
+
+    /**
+     * Named ESM imports of built-in modules (e.g. `import { request } from
+     * 'node:https'`) bind to a snapshot of the module's exports that is only
+     * refreshed by `syncBuiltinESMExports()`. Patching the CommonJS exports
+     * alone leaves that snapshot stale, so requests made via named imports
+     * bypass interception. Refresh the snapshot after applying the patches,
+     * and again after the originals have been restored on dispose
+     * (subscriptions run in reverse order, so this callback is pushed
+     * before the patches it must follow).
+     */
+    this.subscriptions.push(() => {
+      syncBuiltinESMExports()
+    })
 
     this.subscriptions.push(
       patchesRegistry.applyPatch(http, 'ClientRequest', (ClientRequest) => {
@@ -74,5 +89,7 @@ export class ClientRequestInterceptor extends Interceptor<HttpRequestEventMap> {
         }
       })
     )
+
+    syncBuiltinESMExports()
   }
 }
